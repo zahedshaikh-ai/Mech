@@ -1,0 +1,56 @@
+{
+    "reference_test": {
+        "filename": "SA26924-0104C.pdf",
+        "expected_date": "11.10.2026",
+        "expected_job_number": "SA26924-0104C",
+        "expected_values": [1, 20, 16, 11, 1, -9, 9, -24],
+        "expected_column_map": {
+            "L33": 1,
+            "L23": 20,
+            "L12": 16,
+            "L1": 11,
+            "R1": 1,
+            "R12": -9,
+            "R23": 9,
+            "R33": -24
+        },
+        "expected_status": "PASS",
+        "tolerance": {
+            "min": -30,
+            "max": 30,
+            "inclusive": true
+        }
+    },
+    "edge_cases": {
+        "tolerance_fail": {
+            "description": "Values outside ±30 should produce FAIL status",
+            "values": [1, 20, 16, 31, 1, -9, 9, -24],
+            "expected_status": "FAIL"
+        },
+        "boundary_pass_positive": {
+            "description": "Value at exactly +30 should PASS (inclusive)",
+            "values": [30, 20, 16, 11, 1, -9, 9, -24],
+            "expected_status": "PASS"
+        },
+        "boundary_pass_negative": {
+            "description": "Value at exactly -30 should PASS (inclusive)",
+            "values": [1, 20, 16, 11, 1, -9, 9, -30],
+            "expected_status": "PASS"
+        },
+        "boundary_fail_positive": {
+            "description": "Value at +31 should FAIL",
+            "values": [31, 20, 16, 11, 1, -9, 9, -24],
+            "expected_status": "FAIL"
+        },
+        "boundary_fail_negative": {
+            "description": "Value at -31 should FAIL",
+            "values": [1, 20, 16, 11, 1, -9, 9, -31],
+            "expected_status": "FAIL"
+        },
+        "incomplete_missing": {
+            "description": "Missing values should produce INCOMPLETE status",
+            "values": [1, null, 16, 11, 1, -9, 9, -24],
+            "expected_status": "INCOMPLETE"
+        }
+    }
+}

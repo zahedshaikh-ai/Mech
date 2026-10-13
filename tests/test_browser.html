@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>MECH Extraction Test</title>
+    <style>
+        body { font-family: 'Consolas', monospace; padding: 20px; background: #111; color: #eee; }
+        .pass { color: #4caf50; }
+        .fail { color: #f44336; }
+        .info { color: #64b5f6; }
+        #output { white-space: pre-wrap; line-height: 1.8; }
+        h1 { color: #90caf9; margin-bottom: 20px; }
+        .section { margin: 10px 0; padding: 10px; background: #1a1a2e; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <h1>🔧 MECH Browser Extraction Test</h1>
+    <div style="margin: 15px 0;">
+        <button id="run-auto-test" style="background: #2563eb; color: #fff; border: none; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px;">▶ Run Reference Test (SA26924-0104C.pdf)</button>
+        <span style="margin: 0 10px; color: #888;">or upload manually:</span>
+        <input type="file" id="test-file" accept=".pdf" style="padding: 8px;">
+    </div>
+    <div id="output"></div>
+
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+    <!-- Extraction modules -->
+    <script src="../js/pdf-loader.js"></script>
+    <script src="../js/text-reconstruction.js"></script>
+    <script src="../js/fhbeta-extractor.js"></script>
+    <script src="../js/metadata-extractor.js"></script>
+    <script src="../js/validation.js"></script>
+    <script src="../js/export.js"></script>
+
+    <script>
+        const output = document.getElementById('output');
+
+        function log(cls, text) {
+            const span = document.createElement('span');
+            span.className = cls;
+            span.textContent = text + '\n';
+            output.appendChild(span);
+        }
+
+        const EXPECTED = {
+            date: '11.10.2026',
+            jobNumber: 'SA26924-0104C',
+            values: [1, 20, 16, 11, 1, -9, 9, -24],
+            columnMap: {
+                L33: 1, L23: 20, L12: 16, L1: 11,
+                R1: 1, R12: -9, R23: 9, R33: -24
+            },
+            status: 'PASS'
+        };
+
+        let passed = 0;
+        let failed = 0;
+
+        function check(name, actual, expected) {
+            const actualStr = JSON.stringify(actual);
+            const expectedStr = JSON.stringify(expected);
+            const ok = actualStr === expectedStr;
+            if (ok) {
+                log('pass', `  ✅ PASS: ${name}`);
+                passed++;
+            } else {
+                log('fail', `  ❌ FAIL: ${name}`);
+                log('fail', `         Expected: ${expectedStr}`);
+                log('fail', `         Actual:   ${actualStr}`);
+                failed++;
+            }
+        }
+
+        async function runTestSuite(file) {
+            output.innerHTML = '';
+            passed = 0;
+            failed = 0;
+
+            log('info', '='.repeat(60));
+            log('info', 'MECH Browser Extraction Test Suite');
+            log('info', '='.repeat(60));
+            log('info', `\nFile: ${file.name} (${(file.size / 1024).toFixed(1)} KB)\n`);
+
+            try {
+                // Process PDF
+                log('info', '--- Loading PDF ---');
+                const pdfResult = await PDFLoader.processFile(file);
+                log('info', `Pages: ${pdfResult.pageCount}`);
+                log('info', `Text items on page 1: ${pdfResult.pages[0].textItems.length}`);
+
+                // Diagnostic: log items containing Date, Part, fH, numbers
+                log('info', '\n--- Sample Raw Items from PDF.js ---');
+                const p1Items = pdfResult.pages[0].textItems;
+                p1Items.forEach((it, idx) => {
+                    const str = it.text;
+                    if (str.includes('Date') || str.includes('Part') || str.includes('SA') ||
+                        str.includes('f') || str.includes('H') || str.includes('β') || str.includes('µ') ||
+                        str.includes('30') || (it.y > 700 && it.y < 740) || (it.y > 100 && it.y < 160) ||
+                        (it.y > 40 && it.y < 70)) {
+                        log('info', `  [${idx}] y=${it.y.toFixed(1)}, x=${it.x.toFixed(1)}, w=${it.width.toFixed(1)}: "${str}" (code: ${[...str].map(c => 'U+' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')).join(' ')})`);
+                    }
+                });
+
+                // Extract metadata
+                log('info', '\n--- Metadata Extraction ---');
+                const metadata = MetadataExtractor.extractFromPDFResult(pdfResult);
+                log('info', `Date found: ${metadata.date || 'N/A'} (source: ${metadata.debugInfo?.date?.source || 'N/A'})`);
+                log('info', `Job number found: ${metadata.jobNumber || 'N/A'} (source: ${metadata.debugInfo?.jobNumber?.source || 'N/A'})`);
+
+                check('Date matches expected', metadata.date, EXPECTED.date);
+                check('Job number matches expected', metadata.jobNumber, EXPECTED.jobNumber);
+
+                // Extract fHβ measurements
+                log('info', '\n--- fHβ Extraction ---');
+                const extraction = FHBetaExtractor.extractFromPDFResult(pdfResult);
+
+                log('info', `Success: ${extraction.success}`);
+                log('info', `Strategy: ${extraction.debugInfo?.strategy || 'N/A'}`);
+                log('info', `Numbers found: ${extraction.debugInfo?.allNumbers?.length || 0}`);
+                if (extraction.debugInfo?.allNumbers) {
+                    log('info', `All numbers: [${extraction.debugInfo.allNumbers.map(n => n.value).join(', ')}]`);
+                }
+                if (extraction.debugInfo?.warnings?.length > 0) {
+                    for (const w of extraction.debugInfo.warnings) {
+                        log('fail', `⚠ Warning: ${w}`);
+                    }
+                }
+
+                check('Extraction succeeded', extraction.success, true);
+
+                if (extraction.success) {
+                    check('Exactly 8 values', extraction.values?.length, 8);
+                    check('Values match expected', extraction.values, EXPECTED.values);
+
+                    // Column mapping
+                    log('info', '\n--- Column Mapping ---');
+                    for (const col of ['L33', 'L23', 'L12', 'L1', 'R1', 'R12', 'R23', 'R33']) {
+                        check(`${col} = ${EXPECTED.columnMap[col]}`, extraction.columnMap[col], EXPECTED.columnMap[col]);
+                    }
+
+                    // Negative sign preservation
+                    log('info', '\n--- Negative Sign Preservation ---');
+                    const negValues = extraction.values.filter(v => v < 0);
+                    const expectedNeg = EXPECTED.values.filter(v => v < 0);
+                    check('Negative values preserved', negValues, expectedNeg);
+
+                    // Validation
+                    log('info', '\n--- Validation ---');
+                    const record = Validation.buildRecord(file.name, metadata, extraction);
+                    check('Status is PASS', record.status, EXPECTED.status);
+
+                    // Boundary tests
+                    log('info', '\n--- Boundary Tolerance Tests ---');
+                    check('+30 is in tolerance', Validation.validateValue(30).inTolerance, true);
+                    check('-30 is in tolerance', Validation.validateValue(-30).inTolerance, true);
+                    check('+31 is out of tolerance', Validation.validateValue(31).inTolerance, false);
+                    check('-31 is out of tolerance', Validation.validateValue(-31).inTolerance, false);
+                    check('0 is in tolerance', Validation.validateValue(0).inTolerance, true);
+
+                    // CSV export test
+                    log('info', '\n--- CSV Export ---');
+                    const csv = CSVExport.generateCSV([record]);
+                    const csvLines = csv.split('\r\n').filter(l => l.length > 0);
+                    check('CSV has header + 1 data row', csvLines.length, 2);
+                    const header = csvLines[0].replace('\uFEFF', '');
+                    check('CSV header correct', header, 'Date,Job No,L33,L23,L12,L1,R1,R12,R23,R33,Status');
+                    const dataRow = csvLines[1];
+                    check('CSV data row correct', dataRow, '11.10.2026,SA26924-0104C,1,20,16,11,1,-9,9,-24,PASS');
+                }
+
+            } catch (err) {
+                log('fail', `\n❌ ERROR: ${err.message}`);
+                log('fail', err.stack);
+                failed++;
+            }
+
+            // Summary
+            log('info', '\n' + '='.repeat(60));
+            const total = passed + failed;
+            log(failed > 0 ? 'fail' : 'pass', `Results: ${passed}/${total} tests passed`);
+            if (failed > 0) {
+                log('fail', `⚠️ ${failed} tests FAILED`);
+            } else {
+                log('pass', '✅ All tests PASSED');
+            }
+        }
+
+        document.getElementById('test-file').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) runTestSuite(file);
+        });
+
+        document.getElementById('run-auto-test').addEventListener('click', async () => {
+            try {
+                log('info', 'Fetching reference PDF SA26924-0104C.pdf...');
+                const resp = await fetch('/SA26924-0104C.pdf');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText}`);
+                const blob = await resp.blob();
+                const file = new File([blob], 'SA26924-0104C.pdf', { type: 'application/pdf' });
+                await runTestSuite(file);
+            } catch (err) {
+                log('fail', `Failed to load reference PDF: ${err.message}`);
+                console.error(err);
+            }
+        });
+
+        // Auto-run test immediately on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                document.getElementById('run-auto-test').click();
+            }, 300);
+        });
+    </script>
+</body>
+</html>
